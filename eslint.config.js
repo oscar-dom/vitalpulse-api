@@ -4,7 +4,8 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/", "coverage/", "node_modules/"] },
+  // web/ is linted by its own config (browser and React rules).
+  { ignores: ["dist/", "coverage/", "node_modules/", "web/"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
