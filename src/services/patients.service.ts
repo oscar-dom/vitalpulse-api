@@ -104,7 +104,7 @@ export const updatePatient = async (
   const updated = await PatientModel.findOneAndUpdate(
     { _id: patient._id, versionId: patient.versionId, deleted: false },
     { ...replacement(fields), $inc: { versionId: 1 } },
-    { new: true, runValidators: true },
+    { returnDocument: "after", runValidators: true },
   ).catch(rethrowDuplicate);
   if (!updated) {
     throw new AppError(
