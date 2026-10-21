@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   type Bundle,
   entries,
@@ -64,6 +64,8 @@ const LatestResults = ({ observations }: { observations: Observation[] | undefin
 export const PatientsPage = () => {
   const api = useApi();
   const { user } = useAuth();
+  // Set after deleting a patient.
+  const saved = (useLocation().state as { saved?: string } | null)?.saved;
   const [filters, setFilters] = useState<Filters>({
     name: "",
     identifier: "",
@@ -120,6 +122,12 @@ export const PatientsPage = () => {
           </Link>
         )}
       </div>
+
+      {saved && (
+        <p role="status" className="notice">
+          {saved}
+        </p>
+      )}
 
       <form
         role="search"
