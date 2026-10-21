@@ -1,6 +1,7 @@
 import { mongo } from "mongoose";
 import { AppError, GoneError, NotFoundError } from "../errors/app.error.js";
 import { toFhirPatient, toPatientFields } from "../fhir/patient.mapper.js";
+import { ObservationModel } from "../models/observation.model.js";
 import { PatientModel, type PatientDocument } from "../models/patient.model.js";
 import type { PatientInput } from "../schemas/patient.schema.js";
 import { getVersion, recordVersion } from "./history.service.js";
@@ -139,13 +140,21 @@ const replacement = (fields: Record<string, unknown>) => {
 /**
  * Deletes a patient. It is kept as deleted, so reading it answers 410 Gone and its
  * history stays. Deleting an already deleted patient succeeds again (FHIR delete is
- * idempotent).
+ * idempotent). A patient with observations cannot be deleted: they would point to
+ * nobody, and clinical data is not thrown away. Set active to false instead.
  */
 export const deletePatient = async (id: string, ifMatch: number | undefined): Promise<void> => {
   const patient = await findAnyPatient(id);
   if (!patient) throw new NotFoundError("Patient", id);
   if (patient.deleted) return;
   assertVersion(patient, ifMatch);
+
+  if (await ObservationModel.exists({ patient: patient._id })) {
+    throw new AppError(
+      `Patient/${id} has observations and cannot be deleted. Update it with active: false instead.`,
+      409,
+    );
+  }
 
   patient.deleted = true;
   patient.versionId += 1;
