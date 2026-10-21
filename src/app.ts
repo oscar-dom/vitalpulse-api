@@ -6,6 +6,7 @@ import { ACCEPTED_BODY_TYPES, requireJsonBody } from "./middlewares/content-type
 import { globalErrorHandler, notFoundHandler } from "./middlewares/error.middleware.js";
 import { globalLimiter } from "./middlewares/rateLimit.middleware.js";
 import { authRouter } from "./routes/auth.routes.js";
+import { fhirRouter } from "./routes/fhir.routes.js";
 import { healthRouter } from "./routes/health.routes.js";
 
 export const app = express();
@@ -27,6 +28,7 @@ app.use(express.json({ type: ACCEPTED_BODY_TYPES }));
 
 app.use("/health", healthRouter);
 app.use("/auth", authRouter);
+app.use("/fhir", fhirRouter);
 
 // Always last, in this order.
 app.use(notFoundHandler);
