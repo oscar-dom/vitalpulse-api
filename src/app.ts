@@ -1,7 +1,9 @@
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
+import swaggerUi from "swagger-ui-express";
 import { env } from "./config/env.js";
+import openapiSpec from "./docs/openapi.json" with { type: "json" };
 import { ACCEPTED_BODY_TYPES, requireJsonBody } from "./middlewares/content-type.middleware.js";
 import { globalErrorHandler, notFoundHandler } from "./middlewares/error.middleware.js";
 import { globalLimiter } from "./middlewares/rateLimit.middleware.js";
@@ -25,6 +27,12 @@ app.use(
 app.use(globalLimiter);
 app.use(requireJsonBody);
 app.use(express.json({ type: ACCEPTED_BODY_TYPES }));
+
+// API documentation: interactive Swagger UI, plus the raw spec for other tools.
+app.get("/docs/openapi.json", (_req, res) => {
+  res.json(openapiSpec);
+});
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 app.use("/health", healthRouter);
 app.use("/auth", authRouter);

@@ -1,0 +1,3017 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "VitalPulse API",
+    "version": "1.0.0",
+    "description": "HL7 **FHIR R4** (4.0.1) server for vital signs: `Patient` and `Observation` resources in JSON.\n\n**Authentication:** sign up with `POST /auth/register` or log in with `POST /auth/login`, then click **Authorize** and paste the token. Every `/fhir` interaction needs it, except `GET /fhir/metadata`.\n\n**Roles:** `admin` manages patients (create, update, delete); `clinician` (every new account) reads patients and records, reads and corrects observations. The first admin is created with `npm run seed:admin`.\n\n**Format:** requests and responses use `application/fhir+json` (`application/json` is accepted too). Every error, FHIR or not, is an `OperationOutcome`; its `issue[].code` says what went wrong and `issue[].expression` points at the element at fault.\n\n**Server-side clinical logic:** for each observation the server sets the unit from the LOINC code, adds the `referenceRange` and works out the `interpretation` (`N`, `L`, `H`, `LL`, `HH`). Clients cannot send them.\n\n**Search:** results come as a `searchset` `Bundle` with `total` and `link` (`self`, `first`, `previous`, `next`, `last`). Follow `next` to page. Repeating a parameter means AND; a comma inside one value means OR. Unknown parameters are ignored unless you send `Prefer: handling=strict`.\n\n**Rate limit:** 100 requests every 15 minutes per IP; then `429`."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "This server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Service status"
+    },
+    {
+      "name": "Auth",
+      "description": "Accounts and tokens (plain JSON, not FHIR)"
+    },
+    {
+      "name": "Capabilities",
+      "description": "What the FHIR server supports"
+    },
+    {
+      "name": "Patient",
+      "description": "Patients: admins manage them, everyone signed in reads them"
+    },
+    {
+      "name": "Observation",
+      "description": "Vital signs: record, read, correct and search"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Check that the API is running",
+        "responses": {
+          "200": {
+            "description": "The API is up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    },
+                    "uptime": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "example": {
+                  "status": "ok",
+                  "uptime": 42.7
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Sign up as a clinician",
+        "description": "Creates a `clinician` account and returns a token, so the client is logged in at once. A `role` field is rejected: admins come from `npm run seed:admin`.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              },
+              "example": {
+                "name": "Grace Hopper",
+                "email": "grace@example.com",
+                "password": "grace-secret-123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                },
+                "example": {
+                  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2YWQ4Y2IyZGFlNmFlZDBmMmRjNzc2MmEiLCJpYXQiOjE3OTI1OTI2ODUsImV4cCI6MTc5MjU5NjI4NX0.AX14G_ONClha-mMXplm65vcG4Mgh771DoFgEIZJtRIA",
+                  "user": {
+                    "id": "6ad8cb2dae6aed0f2dc7762a",
+                    "name": "Grace Hopper",
+                    "email": "grace@example.com",
+                    "role": "clinician",
+                    "createdAt": "2026-10-21T14:24:45.601Z",
+                    "updatedAt": "2026-10-21T14:24:45.601Z"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid fields, one issue each.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "invalidFields": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "name: name is required",
+                          "expression": ["name"]
+                        },
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "email: email must be a valid email address",
+                          "expression": ["email"]
+                        },
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "password: password must have at least 8 characters",
+                          "expression": ["password"]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The email is already registered.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "duplicate": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "duplicate",
+                          "diagnostics": "Email is already registered.",
+                          "expression": ["email"]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log in",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "example": {
+                "email": "grace@example.com",
+                "password": "grace-secret-123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Valid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                },
+                "example": {
+                  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2YWQ4Y2IyZGFlNmFlZDBmMmRjNzc2MmEiLCJpYXQiOjE3OTI1OTI2ODUsImV4cCI6MTc5MjU5NjI4NX0.AX14G_ONClha-mMXplm65vcG4Mgh771DoFgEIZJtRIA",
+                  "user": {
+                    "id": "6ad8cb2dae6aed0f2dc7762a",
+                    "name": "Grace Hopper",
+                    "email": "grace@example.com",
+                    "role": "clinician",
+                    "createdAt": "2026-10-21T14:24:45.601Z",
+                    "updatedAt": "2026-10-21T14:24:45.601Z"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "description": "Wrong email or password (the same answer for both).",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "invalidCredentials": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "login",
+                          "diagnostics": "Invalid email or password."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "The user behind the token",
+        "responses": {
+          "200": {
+            "description": "The current user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "$ref": "#/components/schemas/User"
+                    }
+                  }
+                },
+                "example": {
+                  "user": {
+                    "id": "6ad8cb2dae6aed0f2dc7762a",
+                    "name": "Grace Hopper",
+                    "email": "grace@example.com",
+                    "role": "clinician",
+                    "createdAt": "2026-10-21T14:24:45.601Z",
+                    "updatedAt": "2026-10-21T14:24:45.601Z"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/fhir/metadata": {
+      "get": {
+        "tags": ["Capabilities"],
+        "summary": "CapabilityStatement (capabilities interaction)",
+        "description": "Public. Declares the FHIR version, formats, resources, interactions and search parameters this server supports.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The CapabilityStatement.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityStatement"
+                },
+                "example": {
+                  "resourceType": "CapabilityStatement",
+                  "status": "active",
+                  "date": "2026-10-21T14:24:45.862Z",
+                  "publisher": "VitalPulse",
+                  "kind": "instance",
+                  "software": {
+                    "name": "VitalPulse API"
+                  },
+                  "implementation": {
+                    "description": "FHIR R4 server for vital signs: patients and their observations",
+                    "url": "http://localhost:3000/fhir"
+                  },
+                  "fhirVersion": "4.0.1",
+                  "format": ["json", "application/fhir+json"],
+                  "rest": [
+                    {
+                      "mode": "server",
+                      "documentation": "Every interaction except this statement needs a Bearer token from POST /auth/login. Admins manage patients; any signed-in user records and corrects observations.",
+                      "security": {
+                        "cors": true,
+                        "description": "Bearer JWT from POST /auth/login (Authorization: Bearer <token>)."
+                      },
+                      "resource": [
+                        {
+                          "type": "Patient",
+                          "profile": "http://hl7.org/fhir/StructureDefinition/Patient",
+                          "interaction": [
+                            {
+                              "code": "create"
+                            },
+                            {
+                              "code": "read"
+                            },
+                            {
+                              "code": "vread"
+                            },
+                            {
+                              "code": "update"
+                            },
+                            {
+                              "code": "delete"
+                            },
+                            {
+                              "code": "search-type"
+                            }
+                          ],
+                          "versioning": "versioned",
+                          "readHistory": true,
+                          "updateCreate": false,
+                          "conditionalCreate": false,
+                          "conditionalUpdate": false,
+                          "conditionalDelete": "not-supported",
+                          "searchParam": [
+                            {
+                              "name": "_id",
+                              "type": "token",
+                              "documentation": "Logical id of the patient."
+                            },
+                            {
+                              "name": "identifier",
+                              "type": "token",
+                              "documentation": "An identifier: system|value, value, or system|."
+                            },
+                            {
+                              "name": "name",
+                              "type": "string",
+                              "documentation": "Start of a family or given name, ignoring case (:exact, :contains)."
+                            },
+                            {
+                              "name": "family",
+                              "type": "string",
+                              "documentation": "Start of the family name, ignoring case (:exact, :contains)."
+                            },
+                            {
+                              "name": "gender",
+                              "type": "token",
+                              "documentation": "male | female | other | unknown."
+                            },
+                            {
+                              "name": "active",
+                              "type": "token",
+                              "documentation": "true or false."
+                            }
+                          ]
+                        },
+                        {
+                          "type": "Observation",
+                          "profile": "http://hl7.org/fhir/StructureDefinition/Observation",
+                          "supportedProfile": [
+                            "http://hl7.org/fhir/StructureDefinition/vitalsigns"
+                          ],
+                          "interaction": [
+                            {
+                              "code": "create"
+                            },
+                            {
+                              "code": "read"
+                            },
+                            {
+                              "code": "vread"
+                            },
+                            {
+                              "code": "update"
+                            },
+                            {
+                              "code": "search-type"
+                            }
+                          ],
+                          "versioning": "versioned",
+                          "readHistory": true,
+                          "updateCreate": false,
+                          "conditionalCreate": false,
+                          "conditionalUpdate": false,
+                          "conditionalDelete": "not-supported",
+                          "referencePolicy": ["literal", "local", "enforced"],
+                          "searchInclude": ["Observation:patient", "Observation:subject"],
+                          "searchParam": [
+                            {
+                              "name": "_id",
+                              "type": "token",
+                              "documentation": "Logical id of the observation."
+                            },
+                            {
+                              "name": "patient",
+                              "type": "reference",
+                              "documentation": "The patient: Patient/<id> or <id>."
+                            },
+                            {
+                              "name": "subject",
+                              "type": "reference",
+                              "documentation": "Same as patient."
+                            },
+                            {
+                              "name": "code",
+                              "type": "token",
+                              "documentation": "The vital sign, as LOINC code: http://loinc.org|8867-4 or 8867-4."
+                            },
+                            {
+                              "name": "interpretation",
+                              "type": "token",
+                              "documentation": "The result worked out by the server: N, L, H, LL or HH."
+                            },
+                            {
+                              "name": "status",
+                              "type": "token",
+                              "documentation": "final, amended, entered-in-error..."
+                            },
+                            {
+                              "name": "category",
+                              "type": "token",
+                              "documentation": "Always vital-signs on this server."
+                            },
+                            {
+                              "name": "date",
+                              "type": "date",
+                              "documentation": "When it was measured, with prefix eq, ne, gt, ge, lt or le."
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fhir/Patient": {
+      "get": {
+        "tags": ["Patient"],
+        "summary": "Search patients (search-type)",
+        "parameters": [
+          {
+            "name": "_id",
+            "in": "query",
+            "required": false,
+            "description": "Logical id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "description": "`system|value`, `value` or `system|`.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "https://hospital.example.org/mrn|MRN-0042"
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "description": "Start of a family or given name, ignoring case. Also `name:exact` and `name:contains`.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "ada"
+          },
+          {
+            "name": "family",
+            "in": "query",
+            "required": false,
+            "description": "Start of the family name. Also `family:exact` and `family:contains`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "gender",
+            "in": "query",
+            "required": false,
+            "description": "`male`, `female`, `other` or `unknown`; comma for OR.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "active",
+            "in": "query",
+            "required": false,
+            "description": "`true` or `false`.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "true"
+          },
+          {
+            "name": "_sort",
+            "in": "query",
+            "required": false,
+            "description": "`family`, `birthdate`, `_lastUpdated`; `-` for descending; comma for several.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "family"
+          },
+          {
+            "$ref": "#/components/parameters/count"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/prefer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of matching patients.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bundle"
+                },
+                "example": {
+                  "resourceType": "Bundle",
+                  "id": "0dab5508-4e0d-4dfa-a9be-6e1d22232de9",
+                  "meta": {
+                    "lastUpdated": "2026-10-21T14:24:45.854Z"
+                  },
+                  "type": "searchset",
+                  "total": 1,
+                  "link": [
+                    {
+                      "relation": "self",
+                      "url": "http://localhost:3000/fhir/Patient?name=ada&active=true&_count=10&_page=1"
+                    },
+                    {
+                      "relation": "first",
+                      "url": "http://localhost:3000/fhir/Patient?name=ada&active=true&_count=10&_page=1"
+                    },
+                    {
+                      "relation": "last",
+                      "url": "http://localhost:3000/fhir/Patient?name=ada&active=true&_count=10&_page=1"
+                    }
+                  ],
+                  "entry": [
+                    {
+                      "fullUrl": "http://localhost:3000/fhir/Patient/6ad8cb2dae6aed0f2dc7762b",
+                      "resource": {
+                        "resourceType": "Patient",
+                        "id": "6ad8cb2dae6aed0f2dc7762b",
+                        "meta": {
+                          "versionId": "2",
+                          "lastUpdated": "2026-10-21T14:24:45.768Z"
+                        },
+                        "identifier": [
+                          {
+                            "system": "https://hospital.example.org/mrn",
+                            "value": "MRN-0042"
+                          }
+                        ],
+                        "active": true,
+                        "name": [
+                          {
+                            "use": "official",
+                            "family": "King",
+                            "given": ["Ada", "Augusta"]
+                          }
+                        ],
+                        "gender": "female",
+                        "birthDate": "1985-12-10"
+                      },
+                      "search": {
+                        "mode": "match"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "invalid": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "Parameter \"date\": \"yesterday\" is not a date. Use [prefix]YYYY[-MM[-DD[Thh:mm[:ss]zone]]], prefix one of eq, ne, gt, lt, ge, le."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Patient"],
+        "summary": "Create a patient (create) — admin",
+        "description": "The server assigns `id` and `meta`. Elements the server does not support are rejected, not dropped. Identifiers (`system` + `value`) are unique among living patients.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/fhir+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Patient"
+              },
+              "examples": {
+                "patient": {
+                  "value": {
+                    "resourceType": "Patient",
+                    "identifier": [
+                      {
+                        "system": "https://hospital.example.org/mrn",
+                        "value": "MRN-0042"
+                      }
+                    ],
+                    "active": true,
+                    "name": [
+                      {
+                        "use": "official",
+                        "family": "Lovelace",
+                        "given": ["Ada"]
+                      }
+                    ],
+                    "gender": "female",
+                    "birthDate": "1985-12-10"
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Patient"
+              },
+              "examples": {
+                "patient": {
+                  "value": {
+                    "resourceType": "Patient",
+                    "identifier": [
+                      {
+                        "system": "https://hospital.example.org/mrn",
+                        "value": "MRN-0042"
+                      }
+                    ],
+                    "active": true,
+                    "name": [
+                      {
+                        "use": "official",
+                        "family": "Lovelace",
+                        "given": ["Ada"]
+                      }
+                    ],
+                    "gender": "female",
+                    "birthDate": "1985-12-10"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created.",
+            "headers": {
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Last-Modified": {
+                "$ref": "#/components/headers/LastModified"
+              }
+            },
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Patient"
+                },
+                "example": {
+                  "resourceType": "Patient",
+                  "id": "6ad8cb2dae6aed0f2dc7762b",
+                  "meta": {
+                    "versionId": "1",
+                    "lastUpdated": "2026-10-21T14:24:45.750Z"
+                  },
+                  "identifier": [
+                    {
+                      "system": "https://hospital.example.org/mrn",
+                      "value": "MRN-0042"
+                    }
+                  ],
+                  "active": true,
+                  "name": [
+                    {
+                      "use": "official",
+                      "family": "Lovelace",
+                      "given": ["Ada"]
+                    }
+                  ],
+                  "gender": "female",
+                  "birthDate": "1985-12-10"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The resource is not valid.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "invalid": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "Patient.identifier: at least one identifier is required",
+                          "expression": ["Patient.identifier"]
+                        },
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "Patient.name[0]: a name needs a family name or at least one given name",
+                          "expression": ["Patient.name[0]"]
+                        },
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "Patient.gender: must be one of: male, female, other, unknown",
+                          "expression": ["Patient.gender"]
+                        },
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "Patient.birthDate: cannot be in the future",
+                          "expression": ["Patient.birthDate"]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Signed in, but not an admin.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "forbidden",
+                          "diagnostics": "You do not have permission to perform this action."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another patient has one of the identifiers.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "duplicate": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "duplicate",
+                          "diagnostics": "Another patient already has one of these identifiers.",
+                          "expression": ["Patient.identifier"]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          }
+        }
+      }
+    },
+    "/fhir/Patient/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "get": {
+        "tags": ["Patient"],
+        "summary": "Read a patient (read)",
+        "responses": {
+          "200": {
+            "description": "The current version.",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Last-Modified": {
+                "$ref": "#/components/headers/LastModified"
+              }
+            },
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Patient"
+                },
+                "example": {
+                  "resourceType": "Patient",
+                  "id": "6ad8cb2dae6aed0f2dc7762b",
+                  "meta": {
+                    "versionId": "2",
+                    "lastUpdated": "2026-10-21T14:24:45.768Z"
+                  },
+                  "identifier": [
+                    {
+                      "system": "https://hospital.example.org/mrn",
+                      "value": "MRN-0042"
+                    }
+                  ],
+                  "active": true,
+                  "name": [
+                    {
+                      "use": "official",
+                      "family": "King",
+                      "given": ["Ada", "Augusta"]
+                    }
+                  ],
+                  "gender": "female",
+                  "birthDate": "1985-12-10"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No such patient.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "notFound": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "not-found",
+                          "diagnostics": "Patient/507f1f77bcf86cd799439011 not found."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The patient was deleted.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "gone": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "deleted",
+                          "diagnostics": "Patient/6ad8cb2dae6aed0f2dc7762e has been deleted."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Patient"],
+        "summary": "Replace a patient (update) — admin",
+        "description": "Full replacement: elements left out are removed. The body must carry the same `id` as the URL. Send `If-Match` with the ETag you read to avoid overwriting someone else's change. Ids are never chosen by the client, so an unknown id answers 405.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/fhir+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Patient"
+              },
+              "examples": {
+                "update": {
+                  "value": {
+                    "resourceType": "Patient",
+                    "identifier": [
+                      {
+                        "system": "https://hospital.example.org/mrn",
+                        "value": "MRN-0042"
+                      }
+                    ],
+                    "active": true,
+                    "name": [
+                      {
+                        "use": "official",
+                        "family": "King",
+                        "given": ["Ada", "Augusta"]
+                      }
+                    ],
+                    "gender": "female",
+                    "birthDate": "1985-12-10",
+                    "id": "6ad8cb2dae6aed0f2dc7762b"
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Patient"
+              },
+              "examples": {
+                "update": {
+                  "value": {
+                    "resourceType": "Patient",
+                    "identifier": [
+                      {
+                        "system": "https://hospital.example.org/mrn",
+                        "value": "MRN-0042"
+                      }
+                    ],
+                    "active": true,
+                    "name": [
+                      {
+                        "use": "official",
+                        "family": "King",
+                        "given": ["Ada", "Augusta"]
+                      }
+                    ],
+                    "gender": "female",
+                    "birthDate": "1985-12-10",
+                    "id": "6ad8cb2dae6aed0f2dc7762b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated: a new version.",
+            "headers": {
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Last-Modified": {
+                "$ref": "#/components/headers/LastModified"
+              }
+            },
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Patient"
+                },
+                "example": {
+                  "resourceType": "Patient",
+                  "id": "6ad8cb2dae6aed0f2dc7762b",
+                  "meta": {
+                    "versionId": "2",
+                    "lastUpdated": "2026-10-21T14:24:45.768Z"
+                  },
+                  "identifier": [
+                    {
+                      "system": "https://hospital.example.org/mrn",
+                      "value": "MRN-0042"
+                    }
+                  ],
+                  "active": true,
+                  "name": [
+                    {
+                      "use": "official",
+                      "family": "King",
+                      "given": ["Ada", "Augusta"]
+                    }
+                  ],
+                  "gender": "female",
+                  "birthDate": "1985-12-10"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          },
+          "412": {
+            "description": "If-Match does not match the current version.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "stale": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "conflict",
+                          "diagnostics": "Version conflict: If-Match asks for version 1, but the current version is 2."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Patient"],
+        "summary": "Delete a patient (delete) — admin",
+        "description": "Afterwards a read answers 410 Gone. Deleting again answers 204. A patient with observations cannot be deleted: set `active: false` instead.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "The patient has observations.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "hasObservations": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "conflict",
+                          "diagnostics": "Patient/6ad8cb2dae6aed0f2dc7762b has observations and cannot be deleted. Update it with active: false instead."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          }
+        }
+      }
+    },
+    "/fhir/Patient/{id}/_history/{vid}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "$ref": "#/components/parameters/vid"
+        }
+      ],
+      "get": {
+        "tags": ["Patient"],
+        "summary": "Read a past version (vread)",
+        "responses": {
+          "200": {
+            "description": "That version, as it was.",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Last-Modified": {
+                "$ref": "#/components/headers/LastModified"
+              }
+            },
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Patient"
+                },
+                "example": {
+                  "resourceType": "Patient",
+                  "id": "6ad8cb2dae6aed0f2dc7762b",
+                  "meta": {
+                    "versionId": "1",
+                    "lastUpdated": "2026-10-21T14:24:45.750Z"
+                  },
+                  "identifier": [
+                    {
+                      "system": "https://hospital.example.org/mrn",
+                      "value": "MRN-0042"
+                    }
+                  ],
+                  "active": true,
+                  "name": [
+                    {
+                      "use": "official",
+                      "family": "Lovelace",
+                      "given": ["Ada"]
+                    }
+                  ],
+                  "gender": "female",
+                  "birthDate": "1985-12-10"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          }
+        }
+      }
+    },
+    "/fhir/Observation": {
+      "get": {
+        "tags": ["Observation"],
+        "summary": "Search observations (search-type)",
+        "description": "Filters, sorting and paging combine in one query, e.g. `patient=Patient/{id}&code=8867-4&interpretation=H,HH&date=ge2026-10-01&_sort=-date&_count=20`.",
+        "parameters": [
+          {
+            "name": "patient",
+            "in": "query",
+            "required": false,
+            "description": "`Patient/{id}` or `{id}`.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Patient/6ad8cb2dae6aed0f2dc7762b"
+          },
+          {
+            "name": "subject",
+            "in": "query",
+            "required": false,
+            "description": "Same as `patient`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "description": "LOINC code: `http://loinc.org|8867-4` or `8867-4`.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "http://loinc.org|8867-4"
+          },
+          {
+            "name": "interpretation",
+            "in": "query",
+            "required": false,
+            "description": "`N`, `L`, `H`, `LL`, `HH`; comma for OR.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "H,HH"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "`final`, `amended`, `entered-in-error`...",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "description": "Always `vital-signs` here.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "description": "When it was measured: `[prefix]YYYY[-MM[-DD[Thh:mm[:ss]zone]]]`, prefix `eq` (default), `ne`, `gt`, `ge`, `lt`, `le`. Repeat for a range.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "ge2026-10-01",
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "_include",
+            "in": "query",
+            "required": false,
+            "description": "`Observation:patient` adds the patients of the page to the Bundle.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Observation:patient"
+          },
+          {
+            "name": "_sort",
+            "in": "query",
+            "required": false,
+            "description": "`date` or `_lastUpdated`; `-` for descending. Default `-date`.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "-date"
+          },
+          {
+            "$ref": "#/components/parameters/count"
+          },
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/prefer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of matching observations (plus included patients).",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bundle"
+                },
+                "example": {
+                  "resourceType": "Bundle",
+                  "id": "18dd907b-152f-45c5-8578-21704ecc1939",
+                  "meta": {
+                    "lastUpdated": "2026-10-21T14:24:45.858Z"
+                  },
+                  "type": "searchset",
+                  "total": 1,
+                  "link": [
+                    {
+                      "relation": "self",
+                      "url": "http://localhost:3000/fhir/Observation?patient=Patient%2F6ad8cb2dae6aed0f2dc7762b&code=http%3A%2F%2Floinc.org%7C8867-4&interpretation=H%2CHH&_sort=-date&_include=Observation%3Apatient&_count=1&_page=1"
+                    },
+                    {
+                      "relation": "first",
+                      "url": "http://localhost:3000/fhir/Observation?patient=Patient%2F6ad8cb2dae6aed0f2dc7762b&code=http%3A%2F%2Floinc.org%7C8867-4&interpretation=H%2CHH&_sort=-date&_include=Observation%3Apatient&_count=1&_page=1"
+                    },
+                    {
+                      "relation": "last",
+                      "url": "http://localhost:3000/fhir/Observation?patient=Patient%2F6ad8cb2dae6aed0f2dc7762b&code=http%3A%2F%2Floinc.org%7C8867-4&interpretation=H%2CHH&_sort=-date&_include=Observation%3Apatient&_count=1&_page=1"
+                    }
+                  ],
+                  "entry": [
+                    {
+                      "fullUrl": "http://localhost:3000/fhir/Observation/6ad8cb2dae6aed0f2dc77639",
+                      "resource": {
+                        "resourceType": "Observation",
+                        "id": "6ad8cb2dae6aed0f2dc77639",
+                        "meta": {
+                          "versionId": "1",
+                          "lastUpdated": "2026-10-21T14:24:45.824Z",
+                          "profile": ["http://hl7.org/fhir/StructureDefinition/vitalsigns"]
+                        },
+                        "status": "final",
+                        "category": [
+                          {
+                            "coding": [
+                              {
+                                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                                "code": "vital-signs",
+                                "display": "Vital Signs"
+                              }
+                            ],
+                            "text": "Vital Signs"
+                          }
+                        ],
+                        "code": {
+                          "coding": [
+                            {
+                              "system": "http://loinc.org",
+                              "code": "8867-4",
+                              "display": "Heart rate"
+                            }
+                          ],
+                          "text": "Heart rate"
+                        },
+                        "subject": {
+                          "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                        },
+                        "effectiveDateTime": "2026-10-21T12:00:00.000Z",
+                        "valueQuantity": {
+                          "value": 135,
+                          "unit": "beats/minute",
+                          "system": "http://unitsofmeasure.org",
+                          "code": "/min"
+                        },
+                        "interpretation": [
+                          {
+                            "coding": [
+                              {
+                                "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+                                "code": "HH",
+                                "display": "Critical high"
+                              }
+                            ],
+                            "text": "Critical high"
+                          }
+                        ],
+                        "referenceRange": [
+                          {
+                            "low": {
+                              "value": 60,
+                              "unit": "beats/minute",
+                              "system": "http://unitsofmeasure.org",
+                              "code": "/min"
+                            },
+                            "high": {
+                              "value": 100,
+                              "unit": "beats/minute",
+                              "system": "http://unitsofmeasure.org",
+                              "code": "/min"
+                            }
+                          }
+                        ]
+                      },
+                      "search": {
+                        "mode": "match"
+                      }
+                    },
+                    {
+                      "fullUrl": "http://localhost:3000/fhir/Patient/6ad8cb2dae6aed0f2dc7762b",
+                      "resource": {
+                        "resourceType": "Patient",
+                        "id": "6ad8cb2dae6aed0f2dc7762b",
+                        "meta": {
+                          "versionId": "2",
+                          "lastUpdated": "2026-10-21T14:24:45.768Z"
+                        },
+                        "identifier": [
+                          {
+                            "system": "https://hospital.example.org/mrn",
+                            "value": "MRN-0042"
+                          }
+                        ],
+                        "active": true,
+                        "name": [
+                          {
+                            "use": "official",
+                            "family": "King",
+                            "given": ["Ada", "Augusta"]
+                          }
+                        ],
+                        "gender": "female",
+                        "birthDate": "1985-12-10"
+                      },
+                      "search": {
+                        "mode": "include"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "invalidDate": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "Parameter \"date\": \"yesterday\" is not a date. Use [prefix]YYYY[-MM[-DD[Thh:mm[:ss]zone]]], prefix one of eq, ne, gt, lt, ge, le."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Observation"],
+        "summary": "Record a vital sign (create)",
+        "description": "Supported LOINC codes: `8867-4` heart rate (/min), `9279-1` respiratory rate (/min), `8310-5` body temperature (Cel), `2708-6` oxygen saturation (%).\n\nThe server sets the unit, `referenceRange` and `interpretation`. Business rules answer **422**: unsupported code, wrong unit, impossible value, unknown, deleted or inactive patient, or a correction status on create.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/fhir+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Observation"
+              },
+              "examples": {
+                "heartRate": {
+                  "value": {
+                    "resourceType": "Observation",
+                    "status": "final",
+                    "category": [
+                      {
+                        "coding": [
+                          {
+                            "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                            "code": "vital-signs"
+                          }
+                        ]
+                      }
+                    ],
+                    "code": {
+                      "coding": [
+                        {
+                          "system": "http://loinc.org",
+                          "code": "8867-4",
+                          "display": "Heart rate"
+                        }
+                      ]
+                    },
+                    "subject": {
+                      "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                    },
+                    "effectiveDateTime": "2026-10-21T08:30:00+02:00",
+                    "valueQuantity": {
+                      "value": 118,
+                      "unit": "beats/minute",
+                      "system": "http://unitsofmeasure.org",
+                      "code": "/min"
+                    }
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Observation"
+              },
+              "examples": {
+                "heartRate": {
+                  "value": {
+                    "resourceType": "Observation",
+                    "status": "final",
+                    "category": [
+                      {
+                        "coding": [
+                          {
+                            "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                            "code": "vital-signs"
+                          }
+                        ]
+                      }
+                    ],
+                    "code": {
+                      "coding": [
+                        {
+                          "system": "http://loinc.org",
+                          "code": "8867-4",
+                          "display": "Heart rate"
+                        }
+                      ]
+                    },
+                    "subject": {
+                      "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                    },
+                    "effectiveDateTime": "2026-10-21T08:30:00+02:00",
+                    "valueQuantity": {
+                      "value": 118,
+                      "unit": "beats/minute",
+                      "system": "http://unitsofmeasure.org",
+                      "code": "/min"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created, with the interpretation worked out by the server.",
+            "headers": {
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Last-Modified": {
+                "$ref": "#/components/headers/LastModified"
+              }
+            },
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Observation"
+                },
+                "example": {
+                  "resourceType": "Observation",
+                  "id": "6ad8cb2dae6aed0f2dc77631",
+                  "meta": {
+                    "versionId": "1",
+                    "lastUpdated": "2026-10-21T14:24:45.805Z",
+                    "profile": ["http://hl7.org/fhir/StructureDefinition/vitalsigns"]
+                  },
+                  "status": "final",
+                  "category": [
+                    {
+                      "coding": [
+                        {
+                          "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                          "code": "vital-signs",
+                          "display": "Vital Signs"
+                        }
+                      ],
+                      "text": "Vital Signs"
+                    }
+                  ],
+                  "code": {
+                    "coding": [
+                      {
+                        "system": "http://loinc.org",
+                        "code": "8867-4",
+                        "display": "Heart rate"
+                      }
+                    ],
+                    "text": "Heart rate"
+                  },
+                  "subject": {
+                    "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                  },
+                  "effectiveDateTime": "2026-10-21T06:30:00.000Z",
+                  "valueQuantity": {
+                    "value": 118,
+                    "unit": "beats/minute",
+                    "system": "http://unitsofmeasure.org",
+                    "code": "/min"
+                  },
+                  "interpretation": [
+                    {
+                      "coding": [
+                        {
+                          "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+                          "code": "H",
+                          "display": "High"
+                        }
+                      ],
+                      "text": "High"
+                    }
+                  ],
+                  "referenceRange": [
+                    {
+                      "low": {
+                        "value": 60,
+                        "unit": "beats/minute",
+                        "system": "http://unitsofmeasure.org",
+                        "code": "/min"
+                      },
+                      "high": {
+                        "value": 100,
+                        "unit": "beats/minute",
+                        "system": "http://unitsofmeasure.org",
+                        "code": "/min"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The resource is not valid.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "interpretationSent": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "invalid",
+                          "diagnostics": "Observation.interpretation: interpretation is calculated by the server from the value; do not send it",
+                          "expression": ["Observation.interpretation"]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "description": "A business rule is broken.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "wrongUnit": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "business-rule",
+                          "diagnostics": "Body temperature is measured in \"Cel\", not \"[degF]\".",
+                          "expression": ["Observation.valueQuantity.code"]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fhir/Observation/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        }
+      ],
+      "get": {
+        "tags": ["Observation"],
+        "summary": "Read an observation (read)",
+        "responses": {
+          "200": {
+            "description": "The current version.",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Last-Modified": {
+                "$ref": "#/components/headers/LastModified"
+              }
+            },
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Observation"
+                },
+                "example": {
+                  "resourceType": "Observation",
+                  "id": "6ad8cb2dae6aed0f2dc77631",
+                  "meta": {
+                    "versionId": "2",
+                    "lastUpdated": "2026-10-21T14:24:45.835Z",
+                    "profile": ["http://hl7.org/fhir/StructureDefinition/vitalsigns"]
+                  },
+                  "status": "amended",
+                  "category": [
+                    {
+                      "coding": [
+                        {
+                          "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                          "code": "vital-signs",
+                          "display": "Vital Signs"
+                        }
+                      ],
+                      "text": "Vital Signs"
+                    }
+                  ],
+                  "code": {
+                    "coding": [
+                      {
+                        "system": "http://loinc.org",
+                        "code": "8867-4",
+                        "display": "Heart rate"
+                      }
+                    ],
+                    "text": "Heart rate"
+                  },
+                  "subject": {
+                    "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                  },
+                  "effectiveDateTime": "2026-10-21T06:30:00.000Z",
+                  "valueQuantity": {
+                    "value": 88,
+                    "unit": "beats/minute",
+                    "system": "http://unitsofmeasure.org",
+                    "code": "/min"
+                  },
+                  "interpretation": [
+                    {
+                      "coding": [
+                        {
+                          "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+                          "code": "N",
+                          "display": "Normal"
+                        }
+                      ],
+                      "text": "Normal"
+                    }
+                  ],
+                  "referenceRange": [
+                    {
+                      "low": {
+                        "value": 60,
+                        "unit": "beats/minute",
+                        "system": "http://unitsofmeasure.org",
+                        "code": "/min"
+                      },
+                      "high": {
+                        "value": 100,
+                        "unit": "beats/minute",
+                        "system": "http://unitsofmeasure.org",
+                        "code": "/min"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Observation"],
+        "summary": "Correct an observation (update)",
+        "description": "A new version, e.g. `status: amended` with a new value, or `entered-in-error`. The interpretation is worked out again. Patient and code cannot change. Observations cannot be deleted (`DELETE` answers 405): the record keeps every correction.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifMatch"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/fhir+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Observation"
+              },
+              "examples": {
+                "amend": {
+                  "value": {
+                    "resourceType": "Observation",
+                    "status": "amended",
+                    "category": [
+                      {
+                        "coding": [
+                          {
+                            "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                            "code": "vital-signs"
+                          }
+                        ]
+                      }
+                    ],
+                    "code": {
+                      "coding": [
+                        {
+                          "system": "http://loinc.org",
+                          "code": "8867-4",
+                          "display": "Heart rate"
+                        }
+                      ]
+                    },
+                    "subject": {
+                      "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                    },
+                    "effectiveDateTime": "2026-10-21T08:30:00+02:00",
+                    "valueQuantity": {
+                      "value": 88
+                    },
+                    "id": "6ad8cb2dae6aed0f2dc77631"
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Observation"
+              },
+              "examples": {
+                "amend": {
+                  "value": {
+                    "resourceType": "Observation",
+                    "status": "amended",
+                    "category": [
+                      {
+                        "coding": [
+                          {
+                            "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                            "code": "vital-signs"
+                          }
+                        ]
+                      }
+                    ],
+                    "code": {
+                      "coding": [
+                        {
+                          "system": "http://loinc.org",
+                          "code": "8867-4",
+                          "display": "Heart rate"
+                        }
+                      ]
+                    },
+                    "subject": {
+                      "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                    },
+                    "effectiveDateTime": "2026-10-21T08:30:00+02:00",
+                    "valueQuantity": {
+                      "value": 88
+                    },
+                    "id": "6ad8cb2dae6aed0f2dc77631"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Corrected: a new version.",
+            "headers": {
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Last-Modified": {
+                "$ref": "#/components/headers/LastModified"
+              }
+            },
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Observation"
+                },
+                "example": {
+                  "resourceType": "Observation",
+                  "id": "6ad8cb2dae6aed0f2dc77631",
+                  "meta": {
+                    "versionId": "2",
+                    "lastUpdated": "2026-10-21T14:24:45.835Z",
+                    "profile": ["http://hl7.org/fhir/StructureDefinition/vitalsigns"]
+                  },
+                  "status": "amended",
+                  "category": [
+                    {
+                      "coding": [
+                        {
+                          "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                          "code": "vital-signs",
+                          "display": "Vital Signs"
+                        }
+                      ],
+                      "text": "Vital Signs"
+                    }
+                  ],
+                  "code": {
+                    "coding": [
+                      {
+                        "system": "http://loinc.org",
+                        "code": "8867-4",
+                        "display": "Heart rate"
+                      }
+                    ],
+                    "text": "Heart rate"
+                  },
+                  "subject": {
+                    "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                  },
+                  "effectiveDateTime": "2026-10-21T06:30:00.000Z",
+                  "valueQuantity": {
+                    "value": 88,
+                    "unit": "beats/minute",
+                    "system": "http://unitsofmeasure.org",
+                    "code": "/min"
+                  },
+                  "interpretation": [
+                    {
+                      "coding": [
+                        {
+                          "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+                          "code": "N",
+                          "display": "Normal"
+                        }
+                      ],
+                      "text": "Normal"
+                    }
+                  ],
+                  "referenceRange": [
+                    {
+                      "low": {
+                        "value": 60,
+                        "unit": "beats/minute",
+                        "system": "http://unitsofmeasure.org",
+                        "code": "/min"
+                      },
+                      "high": {
+                        "value": 100,
+                        "unit": "beats/minute",
+                        "system": "http://unitsofmeasure.org",
+                        "code": "/min"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "405": {
+            "description": "Unknown id (no client-defined ids), or DELETE.",
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationOutcome"
+                },
+                "examples": {
+                  "delete": {
+                    "value": {
+                      "resourceType": "OperationOutcome",
+                      "issue": [
+                        {
+                          "severity": "error",
+                          "code": "not-supported",
+                          "diagnostics": "DELETE is not supported on /fhir/Observation/6ad8cb2dae6aed0f2dc77631. Allowed: GET, PUT."
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/BusinessRule"
+          }
+        }
+      }
+    },
+    "/fhir/Observation/{id}/_history/{vid}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/id"
+        },
+        {
+          "$ref": "#/components/parameters/vid"
+        }
+      ],
+      "get": {
+        "tags": ["Observation"],
+        "summary": "Read a past version (vread)",
+        "responses": {
+          "200": {
+            "description": "That version, as it was.",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Last-Modified": {
+                "$ref": "#/components/headers/LastModified"
+              }
+            },
+            "content": {
+              "application/fhir+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Observation"
+                },
+                "example": {
+                  "resourceType": "Observation",
+                  "id": "6ad8cb2dae6aed0f2dc77631",
+                  "meta": {
+                    "versionId": "1",
+                    "lastUpdated": "2026-10-21T14:24:45.805Z",
+                    "profile": ["http://hl7.org/fhir/StructureDefinition/vitalsigns"]
+                  },
+                  "status": "final",
+                  "category": [
+                    {
+                      "coding": [
+                        {
+                          "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                          "code": "vital-signs",
+                          "display": "Vital Signs"
+                        }
+                      ],
+                      "text": "Vital Signs"
+                    }
+                  ],
+                  "code": {
+                    "coding": [
+                      {
+                        "system": "http://loinc.org",
+                        "code": "8867-4",
+                        "display": "Heart rate"
+                      }
+                    ],
+                    "text": "Heart rate"
+                  },
+                  "subject": {
+                    "reference": "Patient/6ad8cb2dae6aed0f2dc7762b"
+                  },
+                  "effectiveDateTime": "2026-10-21T06:30:00.000Z",
+                  "valueQuantity": {
+                    "value": 118,
+                    "unit": "beats/minute",
+                    "system": "http://unitsofmeasure.org",
+                    "code": "/min"
+                  },
+                  "interpretation": [
+                    {
+                      "coding": [
+                        {
+                          "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+                          "code": "H",
+                          "display": "High"
+                        }
+                      ],
+                      "text": "High"
+                    }
+                  ],
+                  "referenceRange": [
+                    {
+                      "low": {
+                        "value": 60,
+                        "unit": "beats/minute",
+                        "system": "http://unitsofmeasure.org",
+                        "code": "/min"
+                      },
+                      "high": {
+                        "value": 100,
+                        "unit": "beats/minute",
+                        "system": "http://unitsofmeasure.org",
+                        "code": "/min"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token from POST /auth/login or /auth/register."
+      }
+    },
+    "parameters": {
+      "id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Logical id (24 hexadecimal characters).",
+        "schema": {
+          "type": "string"
+        },
+        "example": "6ad8cb2dae6aed0f2dc7762b"
+      },
+      "vid": {
+        "name": "vid",
+        "in": "path",
+        "required": true,
+        "description": "Version id (meta.versionId).",
+        "schema": {
+          "type": "string"
+        },
+        "example": "1"
+      },
+      "ifMatch": {
+        "name": "If-Match",
+        "in": "header",
+        "required": false,
+        "description": "ETag of the version you are changing, e.g. `W/\"1\"`. If it is not the current one: 412.",
+        "schema": {
+          "type": "string"
+        },
+        "example": "W/\"1\""
+      },
+      "count": {
+        "name": "_count",
+        "in": "query",
+        "required": false,
+        "description": "Page size: default 10, maximum 50 (larger values are reduced). `0` returns only the total.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 10
+        }
+      },
+      "page": {
+        "name": "_page",
+        "in": "query",
+        "required": false,
+        "description": "Page number, from 1. Easier: follow the Bundle `next` link.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        }
+      },
+      "prefer": {
+        "name": "Prefer",
+        "in": "header",
+        "required": false,
+        "description": "`handling=strict` turns unknown parameters into a 400 instead of ignoring them.",
+        "schema": {
+          "type": "string",
+          "enum": ["handling=strict", "handling=lenient"]
+        }
+      }
+    },
+    "headers": {
+      "Location": {
+        "description": "URL of the new version: [base]/[type]/[id]/_history/[vid].",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ETag": {
+        "description": "Version as a weak ETag, e.g. W/\"1\". Send it back in If-Match.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "LastModified": {
+        "description": "When this version was saved.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Invalid input.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "invalid": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "invalid",
+                      "diagnostics": "Patient.identifier: at least one identifier is required",
+                      "expression": ["Patient.identifier"]
+                    },
+                    {
+                      "severity": "error",
+                      "code": "invalid",
+                      "diagnostics": "Patient.name[0]: a name needs a family name or at least one given name",
+                      "expression": ["Patient.name[0]"]
+                    },
+                    {
+                      "severity": "error",
+                      "code": "invalid",
+                      "diagnostics": "Patient.gender: must be one of: male, female, other, unknown",
+                      "expression": ["Patient.gender"]
+                    },
+                    {
+                      "severity": "error",
+                      "code": "invalid",
+                      "diagnostics": "Patient.birthDate: cannot be in the future",
+                      "expression": ["Patient.birthDate"]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "No token, or an invalid or expired one.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "noToken": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "login",
+                      "diagnostics": "Authentication required. Send a Bearer token."
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Signed in, but the role is not allowed.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "forbidden": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "forbidden",
+                      "diagnostics": "You do not have permission to perform this action."
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "No such resource.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "notFound": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "not-found",
+                      "diagnostics": "Patient/507f1f77bcf86cd799439011 not found."
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "MethodNotAllowed": {
+        "description": "Method not supported here, or update of an unknown id.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "notAllowed": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "not-supported",
+                      "diagnostics": "DELETE is not supported on /fhir/Observation/6ad8cb2dae6aed0f2dc77631. Allowed: GET, PUT."
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Conflicts with other data.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "duplicate": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "duplicate",
+                      "diagnostics": "Another patient already has one of these identifiers.",
+                      "expression": ["Patient.identifier"]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Gone": {
+        "description": "The resource was deleted.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "gone": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "deleted",
+                      "diagnostics": "Patient/6ad8cb2dae6aed0f2dc7762e has been deleted."
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "PreconditionFailed": {
+        "description": "If-Match does not match the current version.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "stale": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "conflict",
+                      "diagnostics": "Version conflict: If-Match asks for version 1, but the current version is 2."
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "The body is not JSON.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "xml": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "not-supported",
+                      "diagnostics": "Unsupported Content-Type \"application/xml\". Send application/fhir+json or application/json."
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "BusinessRule": {
+        "description": "A business rule is broken.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "wrongUnit": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "business-rule",
+                      "diagnostics": "Body temperature is measured in \"Cel\", not \"[degF]\".",
+                      "expression": ["Observation.valueQuantity.code"]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Too many requests from this IP.",
+        "content": {
+          "application/fhir+json": {
+            "schema": {
+              "$ref": "#/components/schemas/OperationOutcome"
+            },
+            "examples": {
+              "throttled": {
+                "value": {
+                  "resourceType": "OperationOutcome",
+                  "issue": [
+                    {
+                      "severity": "error",
+                      "code": "throttled",
+                      "diagnostics": "Too many requests. Try again in 15 minutes."
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["name", "email", "password"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 72
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "clinician"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "Coding": {
+        "type": "object",
+        "properties": {
+          "system": {
+            "type": "string",
+            "format": "uri"
+          },
+          "code": {
+            "type": "string"
+          },
+          "display": {
+            "type": "string"
+          }
+        }
+      },
+      "CodeableConcept": {
+        "type": "object",
+        "required": ["coding"],
+        "properties": {
+          "coding": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/Coding"
+            }
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "Quantity": {
+        "type": "object",
+        "required": ["value"],
+        "properties": {
+          "value": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Optional on input; the server sets it from the LOINC code."
+          },
+          "system": {
+            "type": "string",
+            "enum": ["http://unitsofmeasure.org"]
+          },
+          "code": {
+            "type": "string",
+            "description": "UCUM code. Must match the vital sign if sent."
+          }
+        }
+      },
+      "Meta": {
+        "type": "object",
+        "readOnly": true,
+        "description": "Set by the server. Ignored if sent.",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "example": "1"
+          },
+          "lastUpdated": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "profile": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Patient": {
+        "type": "object",
+        "required": ["resourceType", "identifier", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "resourceType": {
+            "type": "string",
+            "enum": ["Patient"]
+          },
+          "id": {
+            "type": "string",
+            "description": "Set by the server. Required on update, equal to the URL id."
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "identifier": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["system", "value"],
+              "properties": {
+                "system": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "value": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "active": {
+            "type": "boolean",
+            "default": true
+          },
+          "name": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "description": "Needs a family name or at least one given name.",
+              "properties": {
+                "use": {
+                  "type": "string",
+                  "enum": ["usual", "official", "temp", "nickname", "anonymous", "old", "maiden"]
+                },
+                "family": {
+                  "type": "string"
+                },
+                "given": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "gender": {
+            "type": "string",
+            "enum": ["male", "female", "other", "unknown"]
+          },
+          "birthDate": {
+            "type": "string",
+            "description": "YYYY, YYYY-MM or YYYY-MM-DD, not in the future.",
+            "example": "1985-12-10"
+          }
+        }
+      },
+      "Observation": {
+        "type": "object",
+        "required": [
+          "resourceType",
+          "status",
+          "code",
+          "subject",
+          "effectiveDateTime",
+          "valueQuantity"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "resourceType": {
+            "type": "string",
+            "enum": ["Observation"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "registered",
+              "preliminary",
+              "final",
+              "amended",
+              "corrected",
+              "cancelled",
+              "entered-in-error"
+            ],
+            "description": "On create: registered, preliminary or final."
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeableConcept"
+            },
+            "description": "Optional; if sent it must be vital-signs."
+          },
+          "code": {
+            "$ref": "#/components/schemas/CodeableConcept"
+          },
+          "subject": {
+            "type": "object",
+            "required": ["reference"],
+            "properties": {
+              "reference": {
+                "type": "string",
+                "example": "Patient/6717c0ffee0000000000002a"
+              },
+              "display": {
+                "type": "string"
+              }
+            }
+          },
+          "effectiveDateTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "With time and time zone; not in the future."
+          },
+          "valueQuantity": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "interpretation": {
+            "type": "array",
+            "readOnly": true,
+            "items": {
+              "$ref": "#/components/schemas/CodeableConcept"
+            },
+            "description": "Worked out by the server. Sending it is a 400."
+          },
+          "referenceRange": {
+            "type": "array",
+            "readOnly": true,
+            "description": "Set by the server. Sending it is a 400.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "low": {
+                  "$ref": "#/components/schemas/Quantity"
+                },
+                "high": {
+                  "$ref": "#/components/schemas/Quantity"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Bundle": {
+        "type": "object",
+        "properties": {
+          "resourceType": {
+            "type": "string",
+            "enum": ["Bundle"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["searchset"]
+          },
+          "total": {
+            "type": "integer",
+            "description": "Matches across all pages."
+          },
+          "link": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "relation": {
+                  "type": "string",
+                  "enum": ["self", "first", "previous", "next", "last"]
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            }
+          },
+          "entry": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fullUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "resource": {
+                  "type": "object",
+                  "description": "A Patient or an Observation."
+                },
+                "search": {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": ["match", "include"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "CapabilityStatement": {
+        "type": "object",
+        "description": "See https://hl7.org/fhir/R4/capabilitystatement.html",
+        "additionalProperties": true
+      },
+      "OperationOutcome": {
+        "type": "object",
+        "required": ["resourceType", "issue"],
+        "properties": {
+          "resourceType": {
+            "type": "string",
+            "enum": ["OperationOutcome"]
+          },
+          "issue": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["severity", "code"],
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": ["error"]
+                },
+                "code": {
+                  "type": "string",
+                  "description": "FHIR IssueType: invalid, structure, login, security, expired, forbidden, not-found, deleted, duplicate, conflict, business-rule, not-supported, throttled, exception..."
+                },
+                "diagnostics": {
+                  "type": "string"
+                },
+                "expression": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "FHIRPath of the element at fault."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}
