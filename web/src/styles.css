@@ -327,6 +327,9 @@ a:focus-visible {
 /* ---------- Data ---------- */
 
 .table-wrap {
+  /* Positioned so absolutely placed content (visually hidden headers) is clipped by
+     the scroll box instead of widening the whole page on a phone. */
+  position: relative;
   overflow-x: auto;
 }
 .table {
