@@ -24,6 +24,18 @@ The repository holds both parts: the API at the root and the web app in [`web/`]
   signs with trends and history, recording with a live preview of the result,
   corrections and patient management.
 
+## Screenshots
+
+![Patient record: latest vital signs with their trend and the observation history](docs/screenshots/patient.png)
+
+| Patients | Record a vital sign |
+|---|---|
+| ![Patient search with each patient's latest out-of-range results](docs/screenshots/patients.png) | ![Recording form with a live preview of the result](docs/screenshots/record.png) |
+
+| Sign in | On a phone |
+|---|---|
+| ![Sign in page](docs/screenshots/login.png) | <img src="docs/screenshots/phone.png" alt="Patient record on a phone" width="260"> |
+
 ## Tech stack
 
 Node.js 22 · TypeScript · Express 5 · MongoDB Atlas + Mongoose · Zod · JWT · bcrypt ·
