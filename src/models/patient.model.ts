@@ -18,9 +18,6 @@ export interface PatientName {
 
 export interface Patient {
   identifiers: PatientIdentifier[];
-  // "system|value" of each identifier (see identifierKey), written with them. A unique
-  // index on it keeps identifiers unique, and identifier searches match it directly.
-  identifierKeys: string[];
   active: boolean;
   names: PatientName[];
   gender?: (typeof GENDERS)[number];
@@ -62,7 +59,6 @@ const patientSchema = new Schema<Patient>(
         "at least one identifier is required",
       ],
     },
-    identifierKeys: { type: [String], default: [] },
     active: { type: Boolean, default: true },
     names: {
       type: [nameSchema],
@@ -76,15 +72,12 @@ const patientSchema = new Schema<Patient>(
   { timestamps: true },
 );
 
-export const identifierKey = ({ system, value }: PatientIdentifier): string => `${system}|${value}`;
-
 // An identifier (system + value) belongs to one living patient only. Deleted patients
-// are left out, so their identifier can be reused. A compound index on
-// identifiers.system + identifiers.value would not work: for arrays MongoDB indexes
-// every system with every value, so two identifiers of one patient could clash with
-// an unrelated patient.
+// are left out, so their identifier can be reused. Both fields come from the same
+// array, so MongoDB indexes each identifier as one pair: two patients only clash when
+// they share a whole identifier, not a system of one and a value of another.
 patientSchema.index(
-  { identifierKeys: 1 },
+  { "identifiers.system": 1, "identifiers.value": 1 },
   { unique: true, partialFilterExpression: { deleted: false } },
 );
 // Name searches and the default sort.
