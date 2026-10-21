@@ -17,13 +17,28 @@ export const toExpression = (path: PropertyKey[], root?: string): string =>
     root ?? "",
   );
 
-const bodyIssue = (issue: core.$ZodIssue, root?: string): Issue => {
+const bodyIssues = (issue: core.$ZodIssue, root?: string): Issue[] => {
+  // An element the schema does not know: one issue per element, pointing at it, so the
+  // client sees exactly what the server refused to store.
+  if (issue.code === "unrecognized_keys") {
+    return issue.keys.map((key) => {
+      const expression = toExpression([...issue.path, key], root);
+      return {
+        code: "structure",
+        diagnostics: `${expression}: this element is not supported by this server`,
+        expression: [expression],
+      };
+    });
+  }
+
   const expression = toExpression(issue.path, root);
-  return {
-    code: "invalid",
-    diagnostics: expression ? `${expression}: ${issue.message}` : issue.message,
-    ...(expression && { expression: [expression] }),
-  };
+  return [
+    {
+      code: "invalid",
+      diagnostics: expression ? `${expression}: ${issue.message}` : issue.message,
+      ...(expression && { expression: [expression] }),
+    },
+  ];
 };
 
 const queryIssue = (issue: core.$ZodIssue): Issue => {
@@ -44,7 +59,7 @@ export const validateBody =
   (req: Request, _res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.body ?? {});
     if (!result.success) {
-      next(new ValidationError(result.error.issues.map((issue) => bodyIssue(issue, root))));
+      next(new ValidationError(result.error.issues.flatMap((issue) => bodyIssues(issue, root))));
       return;
     }
     req.body = result.data;

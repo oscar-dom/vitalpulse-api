@@ -31,7 +31,7 @@ describe("POST /auth/register", () => {
     const res = await register({ ...ada, role: "admin" });
 
     expect(res.status).toBe(400);
-    expect(res.body.resourceType).toBe("OperationOutcome");
+    expect(res.body.issue[0]).toMatchObject({ code: "structure", expression: ["role"] });
     expect(await UserModel.countDocuments()).toBe(0);
   });
 

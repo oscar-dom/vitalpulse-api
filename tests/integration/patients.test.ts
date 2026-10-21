@@ -66,7 +66,14 @@ describe("POST /fhir/Patient (create)", () => {
     const res = await post({ ...patientResource(), maritalStatus: { text: "Married" } });
 
     expect(res.status).toBe(400);
-    expect(res.body.issue[0].diagnostics).toContain("maritalStatus");
+    expect(res.body.issue).toEqual([
+      {
+        severity: "error",
+        code: "structure",
+        diagnostics: "Patient.maritalStatus: this element is not supported by this server",
+        expression: ["Patient.maritalStatus"],
+      },
+    ]);
   });
 
   it("reports every invalid element with its expression", async () => {
