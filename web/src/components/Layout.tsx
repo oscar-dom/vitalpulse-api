@@ -19,11 +19,16 @@ const ROLE_LABEL = { admin: "Admin", clinician: "Clinician" } as const;
 
 /** The signed-in frame: top bar and the current page. Sends guests to sign in. */
 export const Layout = () => {
-  const { user, checking, logout } = useAuth();
+  const { user, checking, ended, logout } = useAuth();
   const location = useLocation();
 
   if (checking) return <p className="empty">Checking your session…</p>;
-  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  // Signing out on purpose starts over at the patient list; an expired session or a
+  // link opened before signing in comes back to the page asked for.
+  if (!user) {
+    const from = ended === "signed-out" ? undefined : location.pathname + location.search;
+    return <Navigate to="/login" replace state={from ? { from } : undefined} />;
+  }
 
   return (
     <>

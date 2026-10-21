@@ -13,16 +13,16 @@ export const useAuth = (): AuthState => {
  * gone: the session ends and the app goes back to the sign-in page.
  */
 export const useApi = () => {
-  const { token, logout } = useAuth();
+  const { token, expire } = useAuth();
   return useCallback(
     async <T>(target: string, options: Omit<RequestOptions, "token"> = {}) => {
       try {
         return await request<T>(target, { ...options, token });
       } catch (error) {
-        if (error instanceof ApiError && error.status === 401) logout();
+        if (error instanceof ApiError && error.status === 401) expire();
         throw error;
       }
     },
-    [token, logout],
+    [token, expire],
   );
 };
