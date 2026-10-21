@@ -1,7 +1,10 @@
 import type { Request, Response } from "express";
 import { parseIfMatch, sendResource } from "../fhir/http.js";
 import { toFhirPatient } from "../fhir/patient.mapper.js";
+import { readSearchParams } from "../fhir/search.js";
+import { FHIR_JSON } from "../fhir/types.js";
 import type { PatientInput } from "../schemas/patient.schema.js";
+import { searchPatients } from "../services/patient-search.service.js";
 import {
   createPatient,
   deletePatient,
@@ -12,6 +15,11 @@ import {
 
 type IdParams = { id: string };
 type VersionParams = IdParams & { vid: string };
+
+export const search = async (req: Request, res: Response): Promise<void> => {
+  const bundle = await searchPatients(readSearchParams(req.query), req.get("Prefer"));
+  res.status(200).type(FHIR_JSON).json(bundle);
+};
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   const patient = await createPatient(req.body as PatientInput);
