@@ -48,6 +48,19 @@ export const dropUnknownParams = (
   for (const name of unknown) params.delete(name);
 };
 
+/**
+ * One condition per value of a parameter, all of which must hold (AND). Inside a value,
+ * comma-separated options are alternatives (OR).
+ */
+export const allOf = <Condition>(
+  values: string[],
+  toCondition: (option: string) => Condition,
+): (Condition | { $or: Condition[] })[] =>
+  values.map((value) => {
+    const options = value.split(",").map(toCondition);
+    return options.length === 1 ? options[0]! : { $or: options };
+  });
+
 const invalid = (parameter: string, message: string): Issue => ({
   code: "invalid",
   diagnostics: `Parameter "${parameter}": ${message}`,

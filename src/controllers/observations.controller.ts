@@ -1,7 +1,10 @@
 import type { Request, Response } from "express";
 import { parseIfMatch, sendResource } from "../fhir/http.js";
 import { toFhirObservation } from "../fhir/observation.mapper.js";
+import { readSearchParams } from "../fhir/search.js";
+import { FHIR_JSON } from "../fhir/types.js";
 import type { ObservationInput } from "../schemas/observation.schema.js";
+import { searchObservations } from "../services/observation-search.service.js";
 import {
   createObservation,
   getObservation,
@@ -11,6 +14,11 @@ import {
 
 type IdParams = { id: string };
 type VersionParams = IdParams & { vid: string };
+
+export const search = async (req: Request, res: Response): Promise<void> => {
+  const bundle = await searchObservations(readSearchParams(req.query), req.get("Prefer"));
+  res.status(200).type(FHIR_JSON).json(bundle);
+};
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   const observation = await createObservation(req.body as ObservationInput);
