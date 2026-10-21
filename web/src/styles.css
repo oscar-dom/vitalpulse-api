@@ -406,3 +406,13 @@ a:focus-visible {
   text-align: center;
   color: var(--ink-3);
 }
+
+.notice {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--normal-bg);
+  color: var(--normal-ink);
+  font-size: 14px;
+  font-weight: 500;
+}

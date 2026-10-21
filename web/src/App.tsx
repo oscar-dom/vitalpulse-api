@@ -4,12 +4,7 @@ import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { PatientDetailPage } from "./pages/PatientDetailPage";
 import { PatientsPage } from "./pages/PatientsPage";
-
-const Placeholder = ({ title }: { title: string }) => (
-  <main className="page">
-    <h1>{title}</h1>
-  </main>
-);
+import { RecordObservationPage } from "./pages/RecordObservationPage";
 
 export const AppRoutes = () => (
   <Routes>
@@ -17,7 +12,7 @@ export const AppRoutes = () => (
     <Route element={<Layout />}>
       <Route index element={<PatientsPage />} />
       <Route path="patients/:id" element={<PatientDetailPage />} />
-      <Route path="observations/new" element={<Placeholder title="Record a vital sign" />} />
+      <Route path="observations/new" element={<RecordObservationPage />} />
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes>
