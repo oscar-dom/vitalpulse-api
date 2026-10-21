@@ -1,9 +1,12 @@
 # VitalPulse API
 
-[HL7 FHIR R4](https://hl7.org/fhir/R4/) server for vital signs. Admins keep a catalog of
-`Patient` resources; clinicians record heart rate, respiratory rate, body temperature and
-oxygen saturation as `Observation` resources, and the **server interprets every value**
-against its reference range (normal, low, high, critical).
+[HL7 FHIR R4](https://hl7.org/fhir/R4/) server for vital signs, with a web app for
+clinicians. Admins keep a catalog of `Patient` resources; clinicians record heart rate,
+respiratory rate, body temperature and oxygen saturation as `Observation` resources, and
+the **server interprets every value** against its reference range (normal, low, high,
+critical).
+
+The repository holds both parts: the API at the root and the web app in [`web/`](web/).
 
 - FHIR RESTful API on `/fhir`: create, read, vread, update, delete and search, in
   `application/fhir+json`.
@@ -17,12 +20,17 @@ against its reference range (normal, low, high, critical).
 - Sign up and log in with JWT; passwords hashed with bcrypt; `admin` and `clinician` roles.
 - Security headers (helmet), CORS, rate limiting and structured logs (pino).
 - Interactive OpenAPI documentation and integration tests.
+- A React web app that uses the API as any FHIR client would: patient search, vital
+  signs with trends and history, recording with a live preview of the result,
+  corrections and patient management.
 
 ## Tech stack
 
 Node.js 22 · TypeScript · Express 5 · MongoDB Atlas + Mongoose · Zod · JWT · bcrypt ·
 helmet · cors · express-rate-limit · pino · Swagger UI · Vitest + Supertest ·
 [`@types/fhir`](https://www.npmjs.com/package/@types/fhir)
+
+Web app: React 19 · TypeScript · Vite · React Router · Vitest + Testing Library
 
 ## Getting started
 
@@ -95,6 +103,35 @@ You should see `MongoDB connected: ...` and
 `curl http://localhost:3000/fhir/metadata`.
 
 For a production-like run: `npm run build` and then `npm start`.
+
+### 5. Start the web app
+
+In a second terminal, with the API running:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173** and sign in with the admin from `.env`, or create a
+clinician account. The web app calls the API at `http://localhost:3000`; to use another
+address, copy `web/.env.example` to `web/.env` and set `VITE_API_URL`. The API's default
+`CORS_ORIGIN` is already `http://localhost:5173`; if you serve the web app elsewhere,
+change it in the API's `.env`.
+
+## The web app
+
+| Page | What it does with the API |
+|---|---|
+| Sign in | `POST /auth/login` or `/auth/register`; the token is kept for the browser tab and checked with `/auth/me` on reload |
+| Patients | `GET /fhir/Patient` with `name`, `identifier`, `gender`, `active`; pages by following the Bundle's `next`/`previous` links. One `GET /fhir/Observation?patient=a,b,c` brings the latest results of the whole page |
+| Patient | `GET /fhir/Patient/{id}` and the observation history, filtered with `interpretation=L,H,LL,HH` or `LL,HH`. Amended values show what they were (vread); **Mark as error** is a `PUT` with `status: entered-in-error` and `If-Match` |
+| Record vital sign | `POST /fhir/Observation`. A live preview uses the same ranges as the server; after saving, the result shown is the one the server worked out |
+| New / Edit patient (admin) | `POST` or `PUT /fhir/Patient` with `If-Match`; an edit keeps identifiers and names the form does not show. **Delete** explains why a patient with observations cannot be removed |
+
+Errors are read from the `OperationOutcome`: a message whose `expression` names a form
+field appears next to that field. A `401` ends the session; a `412` asks to reload.
 
 ## Trying the API
 
@@ -247,8 +284,17 @@ npm test
 Integration tests with Vitest and Supertest run against an in-memory MongoDB
 ([mongodb-memory-server](https://github.com/typegoose/mongodb-memory-server)), so they
 need no Atlas connection and never touch real data. The first run downloads a MongoDB
-binary, which can take a minute. CI runs type checking, linting, formatting, tests and
-the build on every pull request.
+binary, which can take a minute.
+
+The web app has its own tests (Vitest + Testing Library, with a fake API):
+
+```bash
+cd web
+npm test
+```
+
+CI runs type checking, linting, formatting, tests and the build of both parts on every
+pull request.
 
 ## Scripts
 
@@ -263,6 +309,9 @@ the build on every pull request.
 | `npm run typecheck` | Type-check without emitting |
 | `npm run lint` | Lint with ESLint |
 | `npm run format` | Format code with Prettier |
+
+In `web/`: `npm run dev` (Vite dev server on port 5173), `npm run build`, `npm run
+preview`, `npm test`, `npm run typecheck`, `npm run lint`, `npm run format`.
 
 ## Project structure
 
@@ -287,6 +336,14 @@ tests/
 └── integration/    # Vitest + Supertest
 docs/
 └── api.http        # REST Client requests
+web/
+├── index.html
+└── src/
+    ├── api/        # fetch client (OperationOutcome → ApiError), FHIR helpers, useAsync
+    ├── auth/       # session context, useAuth, useApi
+    ├── components/ # layout, result chip, pager
+    ├── pages/      # sign in, patients, patient, record, patient form (+ tests)
+    └── styles.css  # the look of the design: tokens, controls, tables, result colors
 ```
 
 ## Contributing
