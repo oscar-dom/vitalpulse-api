@@ -1,0 +1,403 @@
+# VitalPulse API — manual requests
+#
+# Open this file in VS Code with the REST Client extension (humao.rest-client)
+# and click "Send Request" above any request. Start the API first: npm run dev
+#
+# The requests follow a typical session from top to bottom. Named requests save
+# values (tokens, ids, ETags) that later requests reuse, so run them in order:
+#   1. "Sign up a clinician" or "Log in as the clinician" → {{token}}
+#   2. "Log in as the admin" (after npm run seed:admin)   → {{adminToken}}
+#   3. "Create a patient"                                  → {{patientId}}
+#   4. "Record a high heart rate"                          → {{observationId}}
+
+@baseUrl = http://localhost:3000
+@fhir = {{baseUrl}}/fhir
+
+# Must match ADMIN_EMAIL and ADMIN_PASSWORD in your .env
+@adminEmail = admin@example.com
+@adminPassword = change-me-admin-password
+
+# Values taken from earlier responses. They are defined here, at the top, because a
+# variable line placed under a request would be sent as part of that request's body.
+# Each one is filled in once the request that produces it has been sent.
+@token = {{login.response.body.$.token}}
+@adminToken = {{adminLogin.response.body.$.token}}
+@patientId = {{createPatient.response.body.$.id}}
+@patientEtag = {{readPatient.response.headers.ETag}}
+@observationId = {{createObservation.response.body.$.id}}
+
+### ===================== Service =====================
+
+### Health check → 200
+GET {{baseUrl}}/health
+
+### CapabilityStatement (public) → 200, what the FHIR server supports
+GET {{fhir}}/metadata
+
+### Unknown route → 404 OperationOutcome not-found
+GET {{baseUrl}}/does-not-exist
+
+### ===================== Accounts =====================
+
+### Sign up a clinician → 201 with a token (a second run → 409 duplicate)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Grace Hopper",
+  "email": "grace@example.com",
+  "password": "grace-secret-123"
+}
+
+### Sign up choosing a role → 400 (admins only come from npm run seed:admin)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Mallory",
+  "email": "mallory@example.com",
+  "password": "mallory-secret-123",
+  "role": "admin"
+}
+
+### Log in as the clinician → 200, saved as {{token}}
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "grace@example.com",
+  "password": "grace-secret-123"
+}
+
+### Wrong password → 401 OperationOutcome login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "grace@example.com",
+  "password": "wrong-password"
+}
+
+### Log in as the admin → 200, saved as {{adminToken}}
+# @name adminLogin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
+### Who am I → 200
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{token}}
+
+### ===================== Patient =====================
+
+### FHIR without a token → 401
+GET {{fhir}}/Patient
+
+### Create a patient (admin) → 201 with Location and ETag W/"1"
+# @name createPatient
+POST {{fhir}}/Patient
+Authorization: Bearer {{adminToken}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Patient",
+  "identifier": [{ "system": "https://hospital.example.org/mrn", "value": "MRN-0042" }],
+  "active": true,
+  "name": [{ "use": "official", "family": "Lovelace", "given": ["Ada"] }],
+  "gender": "female",
+  "birthDate": "1985-12-10"
+}
+
+### Create a patient as a clinician → 403 forbidden
+POST {{fhir}}/Patient
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Patient",
+  "identifier": [{ "system": "https://hospital.example.org/mrn", "value": "MRN-0099" }],
+  "name": [{ "family": "Nobody" }]
+}
+
+### Invalid patient → 400 with one issue per element (expression)
+POST {{fhir}}/Patient
+Authorization: Bearer {{adminToken}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Patient",
+  "identifier": [],
+  "name": [{ "use": "official" }],
+  "gender": "f",
+  "birthDate": "2999-01-01",
+  "maritalStatus": { "text": "Married" }
+}
+
+### Same identifier as another patient → 409 duplicate
+POST {{fhir}}/Patient
+Authorization: Bearer {{adminToken}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Patient",
+  "identifier": [{ "system": "https://hospital.example.org/mrn", "value": "MRN-0042" }],
+  "name": [{ "family": "Copy" }]
+}
+
+### Body that is not JSON → 415
+POST {{fhir}}/Patient
+Authorization: Bearer {{adminToken}}
+Content-Type: application/xml
+
+<Patient xmlns="http://hl7.org/fhir"/>
+
+### Read the patient → 200, ETag saved as {{patientEtag}}
+# @name readPatient
+GET {{fhir}}/Patient/{{patientId}}
+Authorization: Bearer {{token}}
+
+### Update the patient with If-Match (admin) → 200, versionId 2
+PUT {{fhir}}/Patient/{{patientId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/fhir+json
+If-Match: {{patientEtag}}
+
+{
+  "resourceType": "Patient",
+  "id": "{{patientId}}",
+  "identifier": [{ "system": "https://hospital.example.org/mrn", "value": "MRN-0042" }],
+  "active": true,
+  "name": [{ "use": "official", "family": "King", "given": ["Ada", "Augusta"] }],
+  "gender": "female",
+  "birthDate": "1985-12-10"
+}
+
+### Same update again with the old ETag → 412 (someone else's change is not overwritten)
+PUT {{fhir}}/Patient/{{patientId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/fhir+json
+If-Match: W/"1"
+
+{
+  "resourceType": "Patient",
+  "id": "{{patientId}}",
+  "identifier": [{ "system": "https://hospital.example.org/mrn", "value": "MRN-0042" }],
+  "name": [{ "family": "Stale" }]
+}
+
+### First version, as it was (vread) → 200
+GET {{fhir}}/Patient/{{patientId}}/_history/1
+Authorization: Bearer {{token}}
+
+### Unsupported method → 405 with Allow
+PATCH {{fhir}}/Patient/{{patientId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/fhir+json
+
+{}
+
+### Resource type not implemented → 404 not-supported
+GET {{fhir}}/Encounter
+Authorization: Bearer {{token}}
+
+### ===================== Observation =====================
+
+### Record a high heart rate (clinician) → 201, interpretation H set by the server
+# @name createObservation
+POST {{fhir}}/Observation
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Observation",
+  "status": "final",
+  "category": [{ "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "vital-signs" }] }],
+  "code": { "coding": [{ "system": "http://loinc.org", "code": "8867-4", "display": "Heart rate" }] },
+  "subject": { "reference": "Patient/{{patientId}}" },
+  "effectiveDateTime": "2026-10-21T08:30:00+02:00",
+  "valueQuantity": { "value": 118, "unit": "beats/minute", "system": "http://unitsofmeasure.org", "code": "/min" }
+}
+
+### Record a normal heart rate, without unit → 201, N, unit added by the server
+POST {{fhir}}/Observation
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Observation",
+  "status": "final",
+  "code": { "coding": [{ "system": "http://loinc.org", "code": "8867-4" }] },
+  "subject": { "reference": "Patient/{{patientId}}" },
+  "effectiveDateTime": "2026-10-20T08:30:00Z",
+  "valueQuantity": { "value": 72 }
+}
+
+### Record a fever → 201, H
+POST {{fhir}}/Observation
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Observation",
+  "status": "final",
+  "code": { "coding": [{ "system": "http://loinc.org", "code": "8310-5" }] },
+  "subject": { "reference": "Patient/{{patientId}}" },
+  "effectiveDateTime": "2026-10-21T07:00:00Z",
+  "valueQuantity": { "value": 38.6, "code": "Cel" }
+}
+
+### Record a critically low oxygen saturation → 201, LL
+POST {{fhir}}/Observation
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Observation",
+  "status": "final",
+  "code": { "coding": [{ "system": "http://loinc.org", "code": "2708-6" }] },
+  "subject": { "reference": "Patient/{{patientId}}" },
+  "effectiveDateTime": "2026-10-21T07:05:00Z",
+  "valueQuantity": { "value": 86, "unit": "%" }
+}
+
+### Send the interpretation from the client → 400 (the server decides it)
+POST {{fhir}}/Observation
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Observation",
+  "status": "final",
+  "code": { "coding": [{ "system": "http://loinc.org", "code": "8867-4" }] },
+  "subject": { "reference": "Patient/{{patientId}}" },
+  "effectiveDateTime": "2026-10-21T09:00:00Z",
+  "valueQuantity": { "value": 150 },
+  "interpretation": [{ "coding": [{ "code": "N" }] }]
+}
+
+### Temperature in Fahrenheit → 422 business-rule (wrong unit)
+POST {{fhir}}/Observation
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Observation",
+  "status": "final",
+  "code": { "coding": [{ "system": "http://loinc.org", "code": "8310-5" }] },
+  "subject": { "reference": "Patient/{{patientId}}" },
+  "effectiveDateTime": "2026-10-21T09:00:00Z",
+  "valueQuantity": { "value": 101.3, "code": "[degF]" }
+}
+
+### Patient that does not exist → 422 business-rule
+POST {{fhir}}/Observation
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Observation",
+  "status": "final",
+  "code": { "coding": [{ "system": "http://loinc.org", "code": "8867-4" }] },
+  "subject": { "reference": "Patient/507f1f77bcf86cd799439011" },
+  "effectiveDateTime": "2026-10-21T09:00:00Z",
+  "valueQuantity": { "value": 80 }
+}
+
+### ===================== Search =====================
+
+### Patients whose name starts with "ada", active → Bundle searchset
+GET {{fhir}}/Patient?name=ada&active=true
+Authorization: Bearer {{token}}
+
+### Patient by identifier (system|value)
+GET {{fhir}}/Patient?identifier=https://hospital.example.org/mrn|MRN-0042
+Authorization: Bearer {{token}}
+
+### All observations, newest first, 2 per page → follow the "next" link
+GET {{fhir}}/Observation?_count=2
+Authorization: Bearer {{token}}
+
+### Filters + sort + paging + _include in one query
+GET {{fhir}}/Observation?patient=Patient/{{patientId}}&code=http://loinc.org|8867-4&interpretation=H,HH&date=ge2026-10-01&_sort=-date&_count=10&_include=Observation:patient
+Authorization: Bearer {{token}}
+
+### Everything out of range (low, high, critical) in October 2026
+GET {{fhir}}/Observation?interpretation=L,H,LL,HH&date=2026-10&_sort=date
+Authorization: Bearer {{token}}
+
+### Only the total, no entries (_count=0)
+GET {{fhir}}/Observation?patient={{patientId}}&_count=0
+Authorization: Bearer {{token}}
+
+### Unknown parameter, ignored → 200
+GET {{fhir}}/Observation?colour=blue
+Authorization: Bearer {{token}}
+
+### Unknown parameter with strict handling → 400
+GET {{fhir}}/Observation?colour=blue
+Authorization: Bearer {{token}}
+Prefer: handling=strict
+
+### Invalid date → 400
+GET {{fhir}}/Observation?date=yesterday
+Authorization: Bearer {{token}}
+
+### ===================== Corrections =====================
+
+### Read the observation → 200
+GET {{fhir}}/Observation/{{observationId}}
+Authorization: Bearer {{token}}
+
+### Correct it: amended with another value → 200, versionId 2, interpretation again
+PUT {{fhir}}/Observation/{{observationId}}
+Authorization: Bearer {{token}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Observation",
+  "id": "{{observationId}}",
+  "status": "amended",
+  "code": { "coding": [{ "system": "http://loinc.org", "code": "8867-4" }] },
+  "subject": { "reference": "Patient/{{patientId}}" },
+  "effectiveDateTime": "2026-10-21T08:30:00+02:00",
+  "valueQuantity": { "value": 88 }
+}
+
+### The original version is kept (vread) → 200, value 118
+GET {{fhir}}/Observation/{{observationId}}/_history/1
+Authorization: Bearer {{token}}
+
+### Observations cannot be deleted → 405, Allow: GET, PUT
+DELETE {{fhir}}/Observation/{{observationId}}
+Authorization: Bearer {{adminToken}}
+
+### ===================== Deleting patients =====================
+
+### Delete a patient with observations → 409 (deactivate it instead)
+DELETE {{fhir}}/Patient/{{patientId}}
+Authorization: Bearer {{adminToken}}
+
+### Create a patient without observations
+# @name tempPatient
+POST {{fhir}}/Patient
+Authorization: Bearer {{adminToken}}
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Patient",
+  "identifier": [{ "system": "https://hospital.example.org/mrn", "value": "MRN-TEMP" }],
+  "name": [{ "family": "Temporary" }]
+}
+
+### Delete it → 204
+DELETE {{fhir}}/Patient/{{tempPatient.response.body.$.id}}
+Authorization: Bearer {{adminToken}}
+
+### Read it now → 410 Gone
+GET {{fhir}}/Patient/{{tempPatient.response.body.$.id}}
+Authorization: Bearer {{adminToken}}
