@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { create, read, remove, update, vread } from "../controllers/patients.controller.js";
+import { create, read, remove, search, update, vread } from "../controllers/patients.controller.js";
 import { authorizeRoles } from "../middlewares/auth.middleware.js";
 import { methodNotAllowed } from "../middlewares/method.middleware.js";
 import { validateBody } from "../middlewares/validate.middleware.js";
@@ -13,8 +13,9 @@ const adminOnly = authorizeRoles("admin");
 
 patientsRouter
   .route("/")
+  .get(search)
   .post(adminOnly, validateBody(patientSchema, "Patient"), create)
-  .all(methodNotAllowed("POST"));
+  .all(methodNotAllowed("GET", "POST"));
 
 patientsRouter
   .route("/:id")
