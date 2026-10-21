@@ -10,9 +10,13 @@ export interface AuthState {
   token: string | null;
   // True while a saved session is being checked against the API.
   checking: boolean;
+  // Why the last session ended: the user signed out, or the API stopped accepting the
+  // token. Only an expired session sends the user back to the page they were on.
+  ended: "signed-out" | "expired" | null;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
+  expire: () => void;
 }
 
 export const AuthContext = createContext<AuthState | null>(null);
@@ -40,11 +44,19 @@ const save = (session: Session | null): void => {
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(readSaved);
   const [checking, setChecking] = useState(() => readSaved() !== null);
+  const [ended, setEnded] = useState<AuthState["ended"]>(null);
 
   const start = useCallback((next: Session | null) => {
     save(next);
     setSession(next);
   }, []);
+  const end = useCallback(
+    (reason: "signed-out" | "expired") => {
+      start(null);
+      setEnded(reason);
+    },
+    [start],
+  );
 
   // A saved token may have expired, or the user may have been removed: ask the API
   // once on load. The role also comes fresh from it.
@@ -55,22 +67,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .currentUser(saved.token)
       .then((user) => start({ token: saved.token, user }))
       .catch((error: unknown) => {
-        if (error instanceof ApiError && error.status === 401) start(null);
+        if (error instanceof ApiError && error.status === 401) end("expired");
       })
       .finally(() => setChecking(false));
-  }, [start]);
+  }, [start, end]);
 
   const value = useMemo<AuthState>(
     () => ({
       user: session?.user ?? null,
       token: session?.token ?? null,
       checking,
+      ended,
       login: async (email, password) => start(await authApi.login(email, password)),
       register: async (name, email, password) =>
         start(await authApi.register(name, email, password)),
-      logout: () => start(null),
+      logout: () => end("signed-out"),
+      expire: () => end("expired"),
     }),
-    [session, checking, start],
+    [session, checking, ended, start, end],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

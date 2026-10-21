@@ -69,13 +69,36 @@ describe("Sign in", () => {
     await waitFor(() => expect(sessionStorage.getItem("vitalpulse.session")).toBeNull());
   });
 
-  it("signs out", async () => {
+  it("signs out, and the next person to sign in starts at the patient list", async () => {
     signIn(ADMIN);
-    fakeApi({ "GET /auth/me": { body: { user: ADMIN } } });
-    renderAt(<AppRoutes />, "/");
+    fakeApi({
+      "GET /auth/me": { body: { user: ADMIN } },
+      "GET /fhir/Patient": { body: { resourceType: "Bundle", total: 0, entry: [] } },
+      "POST /auth/login": { body: { token: "t2", user: CLINICIAN } },
+    });
+    renderAt(<AppRoutes />, "/patients/new");
 
     await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
-
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Email"), "alan@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "alan-secret-123");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Patients" })).toBeInTheDocument();
+  });
+
+  it("brings the user back to the page they asked for", async () => {
+    fakeApi({
+      "POST /auth/login": { body: { token: "t1", user: ADMIN } },
+      "GET /fhir/Patient/a": { status: 404, body: outcome("Patient/a not found.", "not-found") },
+    });
+    renderAt(<AppRoutes />, "/patients/a");
+
+    await userEvent.type(await screen.findByLabelText("Email"), "grace@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "grace-secret-123");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText("This patient does not exist.")).toBeInTheDocument();
   });
 });
