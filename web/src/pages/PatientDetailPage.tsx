@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import {
   age,
@@ -97,6 +97,8 @@ export const PatientDetailPage = () => {
   const { id = "" } = useParams();
   const api = useApi();
   const { user } = useAuth();
+  // Set by the record form after a save: what the server stored and how it judged it.
+  const saved = (useLocation().state as { saved?: string } | null)?.saved;
   const [filter, setFilter] = useState<FilterId>("all");
   const [pageUrl, setPageUrl] = useState<string | null>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
@@ -197,6 +199,12 @@ export const PatientDetailPage = () => {
         <span aria-hidden="true">/</span>
         <span>{patientName(patient)}</span>
       </nav>
+
+      {saved && (
+        <p role="status" className="notice">
+          {saved}
+        </p>
+      )}
 
       <section aria-label="Patient" className="card card-pad patient-head">
         <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
