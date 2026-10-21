@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
+import { PatientDetailPage } from "./pages/PatientDetailPage";
 import { PatientsPage } from "./pages/PatientsPage";
 
 const Placeholder = ({ title }: { title: string }) => (
@@ -15,7 +16,7 @@ export const AppRoutes = () => (
     <Route path="/login" element={<LoginPage />} />
     <Route element={<Layout />}>
       <Route index element={<PatientsPage />} />
-      <Route path="patients/:id" element={<Placeholder title="Patient" />} />
+      <Route path="patients/:id" element={<PatientDetailPage />} />
       <Route path="observations/new" element={<Placeholder title="Record a vital sign" />} />
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />

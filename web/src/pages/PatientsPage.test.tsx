@@ -2,44 +2,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppRoutes } from "../App";
 import { ADMIN, CLINICIAN, fakeApi, renderAt, signIn } from "../test/api";
-
-const BASE = "http://localhost:3000/fhir";
-
-const patient = (id: string, family: string, extra: object = {}) => ({
-  resourceType: "Patient",
-  id,
-  identifier: [{ system: "urn:mrn", value: `MRN-${id}` }],
-  active: true,
-  name: [{ family, given: ["Test"] }],
-  gender: "female",
-  birthDate: "1985-12-10",
-  ...extra,
-});
-
-const observation = (
-  patientId: string,
-  code: string,
-  value: number,
-  result: string,
-  at: string,
-) => ({
-  resourceType: "Observation",
-  id: `${patientId}-${code}-${at}`,
-  status: "final",
-  code: { coding: [{ system: "http://loinc.org", code }] },
-  subject: { reference: `Patient/${patientId}` },
-  effectiveDateTime: at,
-  valueQuantity: { value },
-  interpretation: [{ coding: [{ code: result }] }],
-});
-
-const bundle = (resources: object[], total: number, links: Record<string, string> = {}) => ({
-  resourceType: "Bundle",
-  type: "searchset",
-  total,
-  link: Object.entries(links).map(([relation, url]) => ({ relation, url })),
-  entry: resources.map((resource) => ({ resource, search: { mode: "match" } })),
-});
+import { BASE, bundle, observation, patient } from "../test/fixtures";
 
 describe("Patients page", () => {
   it("lists patients with their out-of-range latest results", async () => {
