@@ -1,0 +1,96 @@
+.patient-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+.avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 32px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 22px;
+  flex: none;
+}
+.facts {
+  margin: 6px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.facts div {
+  display: flex;
+  gap: 6px;
+}
+.facts dt {
+  color: var(--ink-3);
+}
+.facts dd {
+  margin: 0;
+}
+
+.vital {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.vital-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.vital-head h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.vital-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.vital-value .mono {
+  font-size: 36px;
+  letter-spacing: -0.02em;
+}
+.vital-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 40px;
+}
+.bar {
+  display: block;
+  flex: 1;
+  max-width: 28px;
+  border-radius: 3px;
+  background: #d7e3ea;
+}
+.bar-N {
+  background: #9cc5db;
+}
+.bar-L {
+  background: #3b82f6;
+}
+.bar-H {
+  background: #ea580c;
+}
+.bar-LL,
+.bar-HH {
+  background: var(--critical-bg);
+}
