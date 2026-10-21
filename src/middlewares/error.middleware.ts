@@ -20,6 +20,8 @@ export const notFoundHandler = (req: Request, res: Response): void => {
 // Turns every error into an OperationOutcome. Must be registered last.
 export const globalErrorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof AppError) {
+    // RFC 6750: a 401 tells the client which authentication scheme to use.
+    if (err.statusCode === 401) res.set("WWW-Authenticate", "Bearer");
     sendOutcome(res, err.statusCode, err.issues);
     return;
   }
