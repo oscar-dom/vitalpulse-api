@@ -5,6 +5,7 @@ import { env } from "./config/env.js";
 import { ACCEPTED_BODY_TYPES, requireJsonBody } from "./middlewares/content-type.middleware.js";
 import { globalErrorHandler, notFoundHandler } from "./middlewares/error.middleware.js";
 import { globalLimiter } from "./middlewares/rateLimit.middleware.js";
+import { authRouter } from "./routes/auth.routes.js";
 import { healthRouter } from "./routes/health.routes.js";
 
 export const app = express();
@@ -25,6 +26,7 @@ app.use(requireJsonBody);
 app.use(express.json({ type: ACCEPTED_BODY_TYPES }));
 
 app.use("/health", healthRouter);
+app.use("/auth", authRouter);
 
 // Always last, in this order.
 app.use(notFoundHandler);
