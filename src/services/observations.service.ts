@@ -198,7 +198,7 @@ export const updateObservation = async (
   const updated = await ObservationModel.findOneAndUpdate(
     { _id: observation._id, versionId: observation.versionId },
     { $set: judgedFields(input, sign), $inc: { versionId: 1 } },
-    { new: true, runValidators: true },
+    { returnDocument: "after", runValidators: true },
   );
   if (!updated) {
     throw new AppError(
