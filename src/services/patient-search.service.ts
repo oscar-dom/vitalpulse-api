@@ -2,6 +2,7 @@ import type { QueryFilter } from "mongoose";
 import { searchsetBundle } from "../fhir/bundle.js";
 import { toFhirPatient } from "../fhir/patient.mapper.js";
 import {
+  allOf,
   assertOneOf,
   dropUnknownParams,
   parseBoolean,
@@ -52,13 +53,6 @@ const KNOWN = [
 ];
 
 type Condition = QueryFilter<Patient>;
-
-/** Every value is AND; inside a value, commas are OR. */
-const allOf = (values: string[], toCondition: (option: string) => Condition): Condition[] =>
-  values.map((value) => {
-    const options = value.split(",").map(toCondition);
-    return options.length === 1 ? options[0]! : { $or: options };
-  });
 
 const identifierCondition = (value: string): Condition => {
   const { system, code } = parseToken(value);

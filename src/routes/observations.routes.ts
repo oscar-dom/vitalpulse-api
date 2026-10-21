@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { create, read, update, vread } from "../controllers/observations.controller.js";
+import { create, read, search, update, vread } from "../controllers/observations.controller.js";
 import { methodNotAllowed } from "../middlewares/method.middleware.js";
 import { validateBody } from "../middlewares/validate.middleware.js";
 import { observationSchema } from "../schemas/observation.schema.js";
@@ -11,8 +11,9 @@ export const observationsRouter = Router();
 
 observationsRouter
   .route("/")
+  .get(search)
   .post(validateBody(observationSchema, "Observation"), create)
-  .all(methodNotAllowed("POST"));
+  .all(methodNotAllowed("GET", "POST"));
 
 observationsRouter
   .route("/:id")
