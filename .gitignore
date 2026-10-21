@@ -1,9 +1,4 @@
 # =====================================================================
-# Stack-agnostic baseline. Add the entries your language and tooling need
-# (dependency folders, build output, caches) once the project has a stack.
-# =====================================================================
-
-# =====================================================================
 # Environment variables and secrets (NEVER COMMIT)
 # =====================================================================
 .env
@@ -44,6 +39,8 @@ aws-credentials*
 .DS_Store
 Thumbs.db
 desktop.ini
+# Download metadata Windows attaches to files copied into WSL
+*:Zone.Identifier
 
 # =====================================================================
 # Editor swap and backup files
@@ -58,6 +55,8 @@ desktop.ini
 *.log
 
 # =====================================================================
-# Local-only project material (not published)
+# Node.js
 # =====================================================================
-private/
+node_modules/
+dist/
+coverage/
