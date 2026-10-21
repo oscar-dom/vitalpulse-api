@@ -2,7 +2,11 @@ import { mongo } from "mongoose";
 import { AppError, GoneError, NotFoundError } from "../errors/app.error.js";
 import { toFhirPatient, toPatientFields } from "../fhir/patient.mapper.js";
 import { ObservationModel } from "../models/observation.model.js";
-import { PatientModel, type PatientDocument } from "../models/patient.model.js";
+import {
+  type PatientDocument,
+  type PatientIdentifier,
+  PatientModel,
+} from "../models/patient.model.js";
 import type { PatientInput } from "../schemas/patient.schema.js";
 import { getVersion, recordVersion } from "./history.service.js";
 import { isMongoId } from "./ids.service.js";
@@ -16,9 +20,9 @@ const duplicateIdentifier = (): AppError =>
   });
 
 /** 409 if a living patient other than `exceptId` already has one of the identifiers. */
-const assertIdentifiersFree = async (identifierKeys: string[], exceptId?: string) => {
+const assertIdentifiersFree = async (identifiers: PatientIdentifier[], exceptId?: string) => {
   const taken = await PatientModel.exists({
-    identifierKeys: { $in: identifierKeys },
+    $or: identifiers.map((identifier) => ({ identifiers: { $elemMatch: identifier } })),
     deleted: false,
     ...(exceptId && { _id: { $ne: exceptId } }),
   });
@@ -60,7 +64,7 @@ export const getPatient = async (id: string): Promise<PatientDocument> => {
 
 export const createPatient = async (input: PatientInput): Promise<PatientDocument> => {
   const fields = toPatientFields(input);
-  await assertIdentifiersFree(fields.identifierKeys);
+  await assertIdentifiersFree(fields.identifiers);
 
   const patient = await PatientModel.create(fields).catch(rethrowDuplicate);
   await recordVersion("Patient", patient._id, 1, patient.updatedAt, toFhirPatient(patient));
@@ -98,7 +102,7 @@ export const updatePatient = async (
   assertVersion(patient, ifMatch);
 
   const fields = toPatientFields(input);
-  await assertIdentifiersFree(fields.identifierKeys, id);
+  await assertIdentifiersFree(fields.identifiers, id);
 
   // Only applies if nobody saved another version since we read it.
   const updated = await PatientModel.findOneAndUpdate(

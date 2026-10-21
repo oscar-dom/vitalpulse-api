@@ -115,6 +115,21 @@ describe("POST /fhir/Patient (create)", () => {
     expect(res.body.issue[0].code).toBe("duplicate");
   });
 
+  it("only treats a whole identifier as a duplicate", async () => {
+    await post(
+      patientResource({
+        identifier: [
+          { system: "urn:a", value: "1" },
+          { system: "urn:b", value: "2" },
+        ],
+      }),
+    );
+    // Shares a system with one identifier and a value with the other, but no pair.
+    const res = await post(patientResource({ identifier: [{ system: "urn:a", value: "2" }] }));
+
+    expect(res.status).toBe(201);
+  });
+
   it("responds 403 forbidden to a clinician", async () => {
     const res = await post(patientResource(), clinician);
 

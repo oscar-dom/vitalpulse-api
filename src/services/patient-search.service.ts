@@ -56,7 +56,7 @@ type Condition = QueryFilter<Patient>;
 
 const identifierCondition = (value: string): Condition => {
   const { system, code } = parseToken(value);
-  if (system && code) return { identifierKeys: `${system}|${code}` };
+  if (system && code) return { identifiers: { $elemMatch: { system, value: code } } };
   if (system) return { "identifiers.system": system };
   return { "identifiers.value": code };
 };
